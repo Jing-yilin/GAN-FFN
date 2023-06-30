@@ -69,7 +69,7 @@ def get_train_valid_sampler(trainset, valid=0.1):
 def get_IEMOCAP_loaders(
     path, batch_size=32, valid=0.2, num_workers=0, pin_memory=False
 ):
-    trainset = IEMOCAPDataset(path=path)
+    trainset = IEMOCAPDataset(path=path, train=True)
     testset = IEMOCAPDataset(path=path, train=False)
 
     train_sampler, valid_sampler = get_train_valid_sampler(trainset, valid)
@@ -103,6 +103,16 @@ def get_IEMOCAP_loaders(
 def train_or_eval_model(
     model, loss_function, dataloader, epoch, optimizer=None, train=False
 ):
+    """
+    Utility function to train model for one epoch of train data
+    or evaluate model on val/test data.
+    :param model: torch NN model
+    :param loss_function: loss function to optimize
+    :param dataloader: torch Dataloader for train/val/test data
+    :param epoch: number of epoch
+    :param optimizer: optimizer to use to train model
+    :param train: boolean value if train or val/test
+    """
     losses = []
     preds = []
     labels = []
@@ -199,7 +209,25 @@ def train_GAN(
     lr=0.002,
     b1=0.6,
     b2=0.999,
-):
+    dataset_path="./IEMOCAP_features/IEMOCAP_features.pkl",
+) -> pd.DataFrame:
+    """
+    Train the GAN model
+    :param acoustic_generator: acoustic generator model
+    :param visual_generator: visual generator model
+    :param text_generator: text generator model
+    :param acoustic_discriminator: acoustic discriminator model
+    :param visual_discriminator: visual discriminator model
+    :param text_discriminator: text discriminator model
+    :param epochs: number of epochs to train
+    :param batch_size: batch size
+    :param lr: learning rate
+    :param b1: Adam optimizer beta1
+    :param b2: Adam optimizer beta2
+    :param dataset_path: path to dataset
+
+    :return: pandas dataframe with training information
+    """
     # ----------
     #  Training
     # ----------
@@ -230,14 +258,34 @@ def train_GAN(
 
     # Dataloaders
     train_loader, valid_loader, test_loader = get_IEMOCAP_loaders(
-        "./IEMOCAP_features/IEMOCAP_features.pkl", batch_size=batch_size, valid=0.2
+        dataset_path, batch_size=batch_size, valid=0.1
     )
+    # 新建一个df用于存储训练过程中的loss
+    # Acoustic G D D, Visual G D D, Text G D D
+    columns = [
+        "epoch",
+        "acoustic_G_loss",
+        "visual_G_loss",
+        "text_G_loss",
+        "visual_D_loss",
+        "text_D_loss",
+        "acoustic_D_loss",
+    ]
+    loss_df = pd.DataFrame(columns=columns)
 
     # Start epochs
     for epoch in range(epochs):
-        print("=" * 15, "start Epoch : ", epoch + 1, "=" * 15)
+        print("=" * 15, "start Epoch : ", epoch, "=" * 15)
         for i, data in enumerate(train_loader):
-            loss = []
+            loss = {
+                "epoch": epoch,
+                "acoustic_G_loss": 0,
+                "visual_G_loss": 0,
+                "text_G_loss": 0,
+                "visual_D_loss": 0,
+                "text_D_loss": 0,
+                "acoustic_D_loss": 0,
+            }
 
             textf, visuf, acouf, qmask, umask, label = (
                 [d.to(device) for d in data[:-1]] if device else data[:-1]
@@ -261,9 +309,9 @@ def train_GAN(
             label = Variable(label.type(LongTensor))
 
             # -----------------
-            #  Train AcousticGenerator
+            #  1.1 Train AcousticGenerator
             # -----------------
-            print("=" * 15, "Train AcousticGenerator", "=" * 15)
+            # print("=" * 15, "Train AcousticGenerator", "=" * 15)
 
             optimizer_acoustic_G.zero_grad()
 
@@ -275,65 +323,65 @@ def train_GAN(
             text_prob = text_discriminator(acoustic_fusion)
             # print("visual_prob.shape = ", visual_prob.shape) # torch.Size([94, 32, 1])
 
-            g_loss = 0.5 * (
+            g_loss = (
                 adversarial_loss(visual_prob, valid)
                 + adversarial_loss(text_prob, valid)
-            )
-            loss.append(g_loss)
+            ) / 2.0
+            loss["acoustic_G_loss"] = g_loss.detach().numpy()
 
             g_loss.backward()
             optimizer_acoustic_G.step()
 
             # ---------------------
-            #  Train VisualDiscriminator
+            #  1.2 Train VisualDiscriminator
             # ---------------------
-            print("-" * 8, "Train VisualDiscriminator", "-" * 8)
+            # print("-" * 8, "Train VisualDiscriminator", "-" * 8)
 
             optimizer_visual_D.zero_grad()
 
             # Loss for real images
             real_visual_prob = visual_discriminator(real_visual)
-            d_real_loss = adversarial_loss(real_visual_prob, valid)
-
             # Loss for fake images
             fake_visual_prob = visual_discriminator(acoustic_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_visual_prob, fake)
-
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
+            d_loss = (
+                adversarial_loss(real_visual_prob, valid)
+                + adversarial_loss(fake_visual_prob, fake)
+            ) / 2.0
+            loss["visual_D_loss"] = d_loss.detach().numpy()
 
             d_loss.backward()
             optimizer_visual_D.step()
 
             # ---------------------
-            #  Train TextDiscriminator
+            #  1.3 Train TextDiscriminator
             # ---------------------
-            print("-" * 8, "Train TextDiscriminator", "-" * 8)
+            # print("-" * 8, "Train TextDiscriminator", "-" * 8)
 
             optimizer_text_D.zero_grad()
 
             # Loss for real images
             real_text_prob = text_discriminator(real_text)
-            d_real_loss = adversarial_loss(real_text_prob, valid)
 
             # Loss for fake images
             fake_text_prob = text_discriminator(acoustic_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_text_prob, fake)
 
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
+            d_loss = (
+                adversarial_loss(real_text_prob, valid)
+                + adversarial_loss(fake_text_prob, fake)
+            ) / 2.0
+            loss["text_D_loss"] = d_loss.detach().numpy()
 
             d_loss.backward()
             optimizer_text_D.step()
 
-            print(f"Acoustic G D D loss : {loss[0]}, {loss[1]}, {loss[2]}")
+            # print("loss = ", loss)
 
             # -----------------
-            #  Train VisualGenerator
+            #  2.1 Train VisualGenerator
             # -----------------
-            print("=" * 15, "Train VisualGenerator", "=" * 15)
+            # print("=" * 15, "Train VisualGenerator", "=" * 15)
 
             optimizer_visual_G.zero_grad()
 
@@ -345,64 +393,66 @@ def train_GAN(
             text_prob = text_discriminator(visual_fusion)
             # print("visual_prob.shape = ", visual_prob.shape) # torch.Size([94, 32, 1])
 
-            g_loss = 0.5 * (
+            g_loss = (
                 adversarial_loss(acoustic_prob, valid)
                 + adversarial_loss(text_prob, valid)
-            )
-            loss.append(g_loss)
+            ) / 2.0
+            loss["visual_G_loss"] = g_loss.detach().numpy()
 
             g_loss.backward()
             optimizer_visual_G.step()
 
             # ---------------------
-            #  Train AcousticDiscriminator
+            #  2.2 Train AcousticDiscriminator
             # ---------------------
-            print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
+            # print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
 
             optimizer_visual_D.zero_grad()
 
             # Loss for real images
             real_acoustic_prob = acoustic_discriminator(real_acoustic)
-            d_real_loss = adversarial_loss(real_acoustic_prob, valid)
 
             # Loss for fake images
             fake_acoustic_prob = acoustic_discriminator(visual_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_acoustic_prob, fake)
 
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
+            d_loss = (
+                adversarial_loss(real_acoustic_prob, valid)
+                + adversarial_loss(fake_acoustic_prob, fake)
+            ) / 2.0
+            loss["acoustic_D_loss"] = d_loss.detach().numpy()
 
             d_loss.backward()
             optimizer_acoustic_D.step()
 
             # ---------------------
-            #  Train TextDiscriminator
+            #  2.3 Train TextDiscriminator
             # ---------------------
-            print("-" * 8, "Train TextDiscriminator", "-" * 8)
+            # print("-" * 8, "Train TextDiscriminator", "-" * 8)
 
             optimizer_text_D.zero_grad()
 
             # Loss for real images
             real_text_prob = text_discriminator(real_text)
-            d_real_loss = adversarial_loss(real_text_prob, valid)
 
             # Loss for fake images
             fake_text_prob = text_discriminator(visual_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_text_prob, fake)
 
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
-            print(f"Visual G D D loss : {loss[3]}, {loss[4]}, {loss[5]}")
+            d_loss = (
+                adversarial_loss(real_text_prob, valid)
+                + adversarial_loss(fake_text_prob, fake)
+            ) / 2.0
+            loss["text_D_loss"] = d_loss.detach().numpy()
+            # print("loss = ", loss)
 
             d_loss.backward()
             optimizer_text_D.step()
 
             # -----------------
-            #  Train TextGenerator
+            #  3.1 Train TextGenerator
             # -----------------
-            print("=" * 15, "Train TextGenerator", "=" * 15)
+            # print("=" * 15, "Train TextGenerator", "=" * 15)
 
             optimizer_text_G.zero_grad()
 
@@ -414,63 +464,121 @@ def train_GAN(
             visual_prob = visual_discriminator(text_fusion)
             # print("text_prob.shape = ", text_prob.shape) # torch.Size([94, 32, 1])
 
-            g_loss = 0.5 * (
+            g_loss = (
                 adversarial_loss(acoustic_prob, valid)
                 + adversarial_loss(visual_prob, valid)
-            )
-            loss.append(g_loss)
+            ) / 2.0
+            loss["text_G_loss"] = g_loss.detach().numpy()
 
             g_loss.backward()
             optimizer_text_G.step()
 
             # ---------------------
-            #  Train AcousticDiscriminator
+            #  3.2 Train AcousticDiscriminator
             # ---------------------
-            print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
+            # print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
 
             optimizer_visual_D.zero_grad()
 
             # Loss for real images
             real_acoustic_prob = acoustic_discriminator(real_acoustic)
-            d_real_loss = adversarial_loss(real_acoustic_prob, valid)
 
             # Loss for fake images
             fake_acoustic_prob = acoustic_discriminator(text_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_acoustic_prob, fake)
 
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
-            print(f"G D D loss : {loss[3]}, {loss[4]}, {loss[5]}")
+            d_loss = (
+                adversarial_loss(real_acoustic_prob, valid)
+                + adversarial_loss(fake_acoustic_prob, fake)
+            ) / 2.0
+            loss["acoustic_D_loss"] = d_loss.detach().numpy()
             d_loss.backward()
             optimizer_acoustic_D.step()
 
             # ---------------------
-            #  Train VisualDiscriminator
+            #  3.3 Train VisualDiscriminator
             # ---------------------
-            print("-" * 8, "Train VisualDiscriminator", "-" * 8)
+            # print("-" * 8, "Train VisualDiscriminator", "-" * 8)
 
             optimizer_visual_D.zero_grad()
 
             # Loss for real images
             real_visual_prob = visual_discriminator(real_visual)
-            d_real_loss = adversarial_loss(real_visual_prob, valid)
 
             # Loss for fake images
             fake_visual_prob = visual_discriminator(text_fusion.detach())
-            d_fake_loss = adversarial_loss(fake_visual_prob, fake)
 
             # Total discriminator loss
-            d_loss = (d_real_loss + d_fake_loss) / 2
-            loss.append(d_loss)
-            print(f"Text G D D loss : {loss[6]}, {loss[7]}, {loss[8]}")
+            d_loss = (
+                adversarial_loss(real_visual_prob, valid)
+                + adversarial_loss(fake_visual_prob, fake)
+            ) / 2.0
+            loss["visual_D_loss"] = d_loss.detach().numpy()
+
+            # 以表格的形式打印loss这个字典
+            loss = pd.DataFrame(loss, index=[0])
+            print(loss)
+
 
             d_loss.backward()
             optimizer_visual_D.step()
+            # 在每个epoch的最后一次batch中，将loss添加到loss_df中
+            # 把loss添加到loss_df中
+            if i == len(train_loader) - 1:
+                # loss_df添加上loss
+                loss_df = pd.concat([loss_df, loss], axis=0, ignore_index=True)
+    return loss_df
+
+
+def draw_GAN_loss(df: pd.DataFrame) -> None:
+    """画出GAN的loss曲线"""
+    plt.figure(figsize=(10, 8))
+    # 画出loss曲线
+    plt.plot(df["epoch"], df["acoustic_G_loss"], label="acoustic_G_loss")
+    plt.plot(df["epoch"], df["visual_G_loss"], label="visual_G_loss")
+    plt.plot(df["epoch"], df["text_G_loss"], label="text_G_loss")
+    plt.plot(df["epoch"], df["visual_D_loss"], label="visual_D_loss")
+    plt.plot(df["epoch"], df["text_D_loss"], label="text_D_loss")
+    plt.plot(df["epoch"], df["acoustic_D_loss"], label="acoustic_D_loss")
+    plt.legend()
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("GAN loss")
+    # 保存
+    if not os.path.exists("./output"):
+        os.mkdir("./output")
+    plt.savefig("./output/GAN_loss.png")
+
+
+def save_GAN_loss(df: pd.DataFrame) -> None:
+    # 保存loss
+    if not os.path.exists("./output"):
+        os.mkdir("./output")
+    df.to_csv("./output/GAN_loss.csv", index=False)
+
+
+def save_GAN_models(models: list, save_path: str) -> None:
+    models_name = [
+        "acoustic_generator",
+        "acoustic_discriminator",
+        "visual_generator",
+        "visual_discriminator",
+        "text_generator",
+        "text_discriminator",
+    ]
+    for id, model in enumerate(models):
+        path = save_path + models_name[id] + ".pth"
+        torch.save(model, path)
 
 
 if __name__ == "__main__":
+    dataset_path = "./IEMOCAP_features/IEMOCAP_features.pkl"
+    model_save_path = "./GAN_save/"
+    # 创建文件
+    if not os.path.exists(model_save_path):
+        os.mkdir(model_save_path)
     parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="does not use GPU"
     )
@@ -481,13 +589,16 @@ if __name__ == "__main__":
         "--l2", type=float, default=0.007, metavar="L2", help="L2 regularization weight"
     )
     parser.add_argument(
-        "--dropout", type=float, default=0.6, metavar="dropout", help="dropout rate"
+        "--dropout", type=float, default=0.5, metavar="dropout", help="dropout rate"
     )
     parser.add_argument(
         "--batch-size", type=int, default=32, metavar="BS", help="batch size"
     )
     parser.add_argument(
         "--epochs", type=int, default=50, metavar="E", help="number of epochs"
+    )
+    parser.add_argument(
+        "--GAN-epochs", type=int, default=5, metavar="E", help="number of GAN epochs"
     )
     parser.add_argument(
         "--class-weight", action="store_true", default=True, help="use class weight"
@@ -505,10 +616,10 @@ if __name__ == "__main__":
         help="Enables tensorboard log",
     )
     parser.add_argument(
-        "--use-trained-model",
+        "--use-trained-GAN",
         action="store_true",
         default=False,
-        help="Use trained model",
+        help="Use trained GAN",
     )
     args = parser.parse_args()
 
@@ -531,30 +642,31 @@ if __name__ == "__main__":
     cuda = args.cuda
     n_epochs = args.epochs
     dropout = args.dropout
+    g_epochs = args.GAN_epochs
 
     n_classes = 6
     D_m = 200
     D_e = 30
     D_h = 100
 
-    use_trained_model = args.use_trained_model
-    models_name = [
-        "acoustic_generator",
-        "acoustic_discriminator",
-        "visual_generator",
-        "visual_discriminator",
-        "text_generator",
-        "text_discriminator",
-    ]
+    use_trained_GAN = args.use_trained_GAN
 
-    if use_trained_model == True:
-        acoustic_generator = torch.load("acoustic_generator.pth").eval()
-        acoustic_discriminator = torch.load("acoustic_discriminator.pth").eval()
-        visual_generator = torch.load("visual_generator.pth").eval()
-        visual_discriminator = torch.load("visual_discriminator.pth").eval()
-        text_generator = torch.load("text_generator.pth").eval()
-        text_discriminator = torch.load("text_discriminator.pth").eval()
-        print("=" * 15, "loaded trained GAN", "=" * 15)
+    if use_trained_GAN == True:
+        acoustic_generator = torch.load(
+            model_save_path + "acoustic_generator.pth"
+        ).eval()
+        acoustic_discriminator = torch.load(
+            model_save_path + "acoustic_discriminator.pth"
+        ).eval()
+        visual_generator = torch.load(model_save_path + "visual_generator.pth").eval()
+        visual_discriminator = torch.load(
+            model_save_path + "visual_discriminator.pth"
+        ).eval()
+        text_generator = torch.load(model_save_path + "text_generator.pth").eval()
+        text_discriminator = torch.load(
+            model_save_path + "text_discriminator.pth"
+        ).eval()
+        print("=" * 15, model_save_path + "loaded trained GAN", "=" * 15)
 
     else:
         # create GAN components
@@ -573,20 +685,22 @@ if __name__ == "__main__":
             text_generator = nn.DataParallel(text_generator).cuda()
             text_discriminator = nn.DataParallel(text_discriminator).cuda()
 
-        train_GAN(
+        loss_df = train_GAN(
             acoustic_generator,
             visual_generator,
             text_generator,
             acoustic_discriminator,
             visual_discriminator,
             text_discriminator,
-            epochs=50,
+            epochs=g_epochs,
             batch_size=32,
             lr=0.0005,
             b1=0.6,
             b2=0.6,
         )
 
+        save_GAN_loss(loss_df)
+        draw_GAN_loss(loss_df)
         # save model parameters
         models = [
             acoustic_generator,
@@ -596,10 +710,7 @@ if __name__ == "__main__":
             text_generator,
             text_discriminator,
         ]
-
-        for id, model in enumerate(models):
-            path = models_name[id] + ".pth"
-            torch.save(model, path)
+        save_GAN_models(models, model_save_path)
 
         # change mode to eval
         for model in models:
@@ -642,7 +753,7 @@ if __name__ == "__main__":
 
     print("=" * 15, "data loaded", "=" * 15)
     train_loader, valid_loader, test_loader = get_IEMOCAP_loaders(
-        "./IEMOCAP_features/IEMOCAP_features.pkl", batch_size=batch_size, valid=0.1
+        dataset_path, batch_size=batch_size, valid=0.1
     )
 
     best_loss, best_label, best_pred, best_mask = None, None, None, None
@@ -698,10 +809,10 @@ if __name__ == "__main__":
         f_score.append(test_fscore)
 
     acc.extend(f_score)
-    acc = pd.DataFrame(np.array(acc))
+    # acc = pd.DataFrame(np.array(acc))
     f_score = pd.DataFrame(np.array((f_score)))
     writer = pd.ExcelWriter("test.xlsx")
-    acc.to_excel(writer, "sheet_1", float_format="%.2f", header=False, index=False)
+    # acc.to_excel(writer, "sheet_1", float_format="%.2f", header=False, index=False)
     # f_score.to_excel(writer, 'sheet_1', float_format='%.2f', header=False, index=False, columns=[1])
     writer.save()
     writer.close()
