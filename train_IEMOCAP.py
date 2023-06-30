@@ -519,7 +519,6 @@ def train_GAN(
             loss = pd.DataFrame(loss, index=[0])
             print(loss)
 
-
             d_loss.backward()
             optimizer_visual_D.step()
             # 在每个epoch的最后一次batch中，将loss添加到loss_df中
@@ -571,7 +570,7 @@ def save_GAN_models(models: list, save_path: str) -> None:
         torch.save(model, path)
 
 
-if __name__ == "__main__":
+def main():
     dataset_path = "./IEMOCAP_features/IEMOCAP_features.pkl"
     model_save_path = "./GAN_save/"
     # 创建文件
@@ -718,6 +717,7 @@ if __name__ == "__main__":
 
         print("=" * 15, "finished training GAN", "=" * 15)
 
+    # TODO: GAN-FFN还需要进一步调优，目前需要训练到17轮才出现明显的准确度提升
     model = GAN_FFN(
         acoustic_generator,
         visual_generator,
@@ -749,6 +749,7 @@ if __name__ == "__main__":
         # loss_function = FocalLoss(loss_weights.cuda() if cuda else loss_weights)
     else:
         loss_function = MaskedNLLLoss()
+
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.l2)
 
     print("=" * 15, "data loaded", "=" * 15)
@@ -762,12 +763,15 @@ if __name__ == "__main__":
     for e in range(n_epochs):
         print("=" * 15, "FFN Epoch: ", e + 1, "=" * 15)
         start_time = time.time()
+        # 训练
         train_loss, train_acc, _, _, _, train_fscore, _ = train_or_eval_model(
             model, loss_function, train_loader, e, optimizer, True
         )
+        # 验证
         valid_loss, valid_acc, _, _, _, val_fscore, _ = train_or_eval_model(
             model, loss_function, valid_loader, e
         )
+        # 测试
         (
             test_loss,
             test_acc,
@@ -838,3 +842,7 @@ if __name__ == "__main__":
         classification_report(best_label, best_pred, sample_weight=best_mask, digits=4)
     )
     print(confusion_matrix(best_label, best_pred, sample_weight=best_mask))
+
+
+if __name__ == "__main__":
+    main()
