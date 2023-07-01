@@ -3,3 +3,4 @@ torch
 sklearn
 torch_geometric
 matplotlib
+GAN_save

@@ -43,7 +43,7 @@ LongTensor = torch.LongTensor
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-seed = 2023
+seed = 3407  # https://arxiv.org/pdf/2109.08203.pdf
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -197,13 +197,68 @@ def train_or_eval_model(
     )
 
 
+def train_disc(disc, real_dics, gen,real_gen, opt, adversarial_loss, valid, fake) -> float:
+    """
+    Train discriminator
+    Args:
+        disc: discriminator
+        real_dics: real data input to discriminator
+        gen: generator
+        real_gen: real data input to generator
+        opt: optimizer
+        adversarial_loss: adversarial loss
+        valid: valid label
+        fake: fake label
+    """
+    disc.train()
+    gen.eval()
+
+    opt.zero_grad()
+    real_prob = disc(real_dics)
+    fusion = gen(real_gen)
+    fake_prob = disc(fusion.detach())
+    d_loss = (
+        adversarial_loss(real_prob, valid)
+        + adversarial_loss(fake_prob, fake)
+    ) / 2.0
+    res = d_loss.cpu().detach().numpy()
+    d_loss.backward()
+    opt.step()
+    return res
+
+
+def train_gen(gen,real_gen, disc, opt, adversarial_loss, valid, fake) -> float:
+    """
+    Train generator
+    Args:
+        gen: generator
+        real_gen: real data input to generator
+        disc: discriminator
+        opt: optimizer
+        adversarial_loss: adversarial loss
+        valid: valid label
+        fake: fake label
+    """
+    gen.train()
+    disc.eval()
+
+    opt.zero_grad()
+    fusion = gen(real_gen)
+    prob = disc(fusion)
+    g_loss = adversarial_loss(prob, valid) 
+    res = g_loss.cpu().detach().numpy()
+    g_loss.backward()
+    opt.step()
+    return res
+
+
 def train_GAN(
-    acoustic_generator: AcousticGenerator,
-    visual_generator: VisualGenerator,
-    text_generator: TextGenerator,
-    acoustic_discriminator: AcousticDiscriminator,
-    visual_discriminator: VisualDiscriminator,
-    text_discriminator: TextDiscriminator,
+    acoustic_gen: AcousticGenerator,
+    visual_gen: VisualGenerator,
+    text_gen: TextGenerator,
+    acoustic_disc: AcousticDiscriminator,
+    visual_disc: VisualDiscriminator,
+    text_disc: TextDiscriminator,
     epochs=1,
     batch_size=32,
     lr=0.002,
@@ -213,12 +268,12 @@ def train_GAN(
 ) -> pd.DataFrame:
     """
     Train the GAN model
-    :param acoustic_generator: acoustic generator model
-    :param visual_generator: visual generator model
-    :param text_generator: text generator model
-    :param acoustic_discriminator: acoustic discriminator model
-    :param visual_discriminator: visual discriminator model
-    :param text_discriminator: text discriminator model
+    :param acoustic_gen: acoustic generator model
+    :param visual_gen: visual generator model
+    :param text_gen: text generator model
+    :param acoustic_disc: acoustic discriminator model
+    :param visual_disc: visual discriminator model
+    :param text_disc: text discriminator model
     :param epochs: number of epochs to train
     :param batch_size: batch size
     :param lr: learning rate
@@ -234,24 +289,12 @@ def train_GAN(
     print("=" * 15, "start training GAN", "=" * 15)
 
     # Optimizers
-    optimizer_acoustic_G = torch.optim.Adam(
-        acoustic_generator.parameters(), lr=lr * 1.1, betas=(b1, b2)
-    )
-    optimizer_acoustic_D = torch.optim.Adam(
-        acoustic_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
-    )
-    optimizer_visual_G = torch.optim.Adam(
-        visual_generator.parameters(), lr=lr, betas=(b1, b2)
-    )
-    optimizer_visual_D = torch.optim.Adam(
-        visual_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
-    )
-    optimizer_text_G = torch.optim.Adam(
-        text_generator.parameters(), lr=lr, betas=(b1, b2)
-    )
-    optimizer_text_D = torch.optim.Adam(
-        text_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
-    )
+    opt_acoustic_G = torch.optim.Adam(acoustic_gen.parameters(), lr=lr, betas=(b1, b2))
+    opt_acoustic_D = torch.optim.Adam(acoustic_disc.parameters(), lr=lr, betas=(b1, b2))
+    opt_visual_G = torch.optim.Adam(visual_gen.parameters(), lr=lr, betas=(b1, b2))
+    opt_visual_D = torch.optim.Adam(visual_disc.parameters(), lr=lr, betas=(b1, b2))
+    opt_text_G = torch.optim.Adam(text_gen.parameters(), lr=lr, betas=(b1, b2))
+    opt_text_D = torch.optim.Adam(text_disc.parameters(), lr=lr, betas=(b1, b2))
 
     # Loss functions
     adversarial_loss = torch.nn.BCELoss()  # 二元交叉熵
@@ -308,219 +351,40 @@ def train_GAN(
             real_acoustic = Variable(acouf.type(FloatTensor))
             label = Variable(label.type(LongTensor))
 
-            # -----------------
-            #  1.1 Train AcousticGenerator
-            # -----------------
-            # print("=" * 15, "Train AcousticGenerator", "=" * 15)
+            #  VisualDiscriminator vs AcousticGenerator
+            loss["visual_D_loss"] = train_disc(visual_disc,real_visual,acoustic_gen,real_acoustic,opt_visual_D,adversarial_loss,valid,fake)
+            #  AcousticGenerator vs VisualDiscriminator
+            loss["acoustic_G_loss"] = train_gen(acoustic_gen,real_acoustic,visual_disc,opt_acoustic_G,adversarial_loss,valid,fake)
 
-            optimizer_acoustic_G.zero_grad()
+            #  VisualDiscriminator vs TextGenerator
+            loss["visual_D_loss"] = train_disc(visual_disc,real_visual,text_gen,real_text,opt_visual_D,adversarial_loss,valid,fake)
+            #  TextGenerator vs VisualDiscriminator
+            loss["text_G_loss"] = train_gen(text_gen,real_text,visual_disc,opt_text_G,adversarial_loss,valid,fake)
 
-            # Generate a batch of fusions
-            acoustic_fusion = acoustic_generator(real_acoustic)
+            #  TextDiscriminator vs AcousticGenerator
+            loss["text_D_loss"] = train_disc(text_disc,real_text,acoustic_gen,real_acoustic,opt_text_D,adversarial_loss,valid,fake)
+            #  AcousticGenerator vs TextDiscriminator
+            loss["acoustic_G_loss"] = train_gen(acoustic_gen,real_acoustic,text_disc,opt_acoustic_G,adversarial_loss,valid,fake)
 
-            # Loss measures generator's ability to fool the discriminator
-            visual_prob = visual_discriminator(acoustic_fusion)
-            text_prob = text_discriminator(acoustic_fusion)
-            # print("visual_prob.shape = ", visual_prob.shape) # torch.Size([94, 32, 1])
+            #  AcousticDiscriminator vs TextGenerator
+            loss["acoustic_D_loss"] = train_disc(acoustic_disc,real_acoustic,text_gen,real_text,opt_acoustic_D,adversarial_loss,valid,fake)
+            #  TextGenerator vs AcousticDiscriminator
+            loss["text_G_loss"] = train_gen(text_gen,real_text,acoustic_disc,opt_text_G,adversarial_loss,valid,fake)
+            
+            #  TextDiscriminator vs VisualGenerator
+            loss["text_D_loss"] = train_disc(text_disc,real_text,visual_gen,real_visual,opt_text_D,adversarial_loss,valid,fake)
+            #  VisualGenerator vs TextDiscriminator
+            loss["visual_G_loss"] = train_gen(visual_gen,real_visual,text_disc,opt_visual_G,adversarial_loss,valid,fake)
 
-            g_loss = (
-                adversarial_loss(visual_prob, valid)
-                + adversarial_loss(text_prob, valid)
-            ) / 2.0
-            loss["acoustic_G_loss"] = g_loss.cpu().detach().numpy()
-
-            g_loss.backward()
-            optimizer_acoustic_G.step()
-
-            # ---------------------
-            #  1.2 Train VisualDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train VisualDiscriminator", "-" * 8)
-
-            optimizer_visual_D.zero_grad()
-
-            # Loss for real images
-            real_visual_prob = visual_discriminator(real_visual)
-            # Loss for fake images
-            fake_visual_prob = visual_discriminator(acoustic_fusion.detach())
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_visual_prob, valid)
-                + adversarial_loss(fake_visual_prob, fake)
-            ) / 2.0
-            loss["visual_D_loss"] = d_loss.cpu().detach().numpy()
-
-            d_loss.backward()
-            optimizer_visual_D.step()
-
-            # ---------------------
-            #  1.3 Train TextDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train TextDiscriminator", "-" * 8)
-
-            optimizer_text_D.zero_grad()
-
-            # Loss for real images
-            real_text_prob = text_discriminator(real_text)
-
-            # Loss for fake images
-            fake_text_prob = text_discriminator(acoustic_fusion.detach())
-
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_text_prob, valid)
-                + adversarial_loss(fake_text_prob, fake)
-            ) / 2.0
-            loss["text_D_loss"] = d_loss.cpu().detach().numpy()
-
-            d_loss.backward()
-            optimizer_text_D.step()
-
-            # print("loss = ", loss)
-
-            # -----------------
-            #  2.1 Train VisualGenerator
-            # -----------------
-            # print("=" * 15, "Train VisualGenerator", "=" * 15)
-
-            optimizer_visual_G.zero_grad()
-
-            # Generate a batch of images
-            visual_fusion = visual_generator(real_visual)
-
-            # Loss measures generator's ability to fool the discriminator
-            acoustic_prob = acoustic_discriminator(visual_fusion)
-            text_prob = text_discriminator(visual_fusion)
-            # print("visual_prob.shape = ", visual_prob.shape) # torch.Size([94, 32, 1])
-
-            g_loss = (
-                adversarial_loss(acoustic_prob, valid)
-                + adversarial_loss(text_prob, valid)
-            ) / 2.0
-            loss["visual_G_loss"] = g_loss.cpu().detach().numpy()
-
-            g_loss.backward()
-            optimizer_visual_G.step()
-
-            # ---------------------
-            #  2.2 Train AcousticDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
-
-            optimizer_visual_D.zero_grad()
-
-            # Loss for real images
-            real_acoustic_prob = acoustic_discriminator(real_acoustic)
-
-            # Loss for fake images
-            fake_acoustic_prob = acoustic_discriminator(visual_fusion.detach())
-
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_acoustic_prob, valid)
-                + adversarial_loss(fake_acoustic_prob, fake)
-            ) / 2.0
-            loss["acoustic_D_loss"] = d_loss.cpu().detach().numpy()
-
-            d_loss.backward()
-            optimizer_acoustic_D.step()
-
-            # ---------------------
-            #  2.3 Train TextDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train TextDiscriminator", "-" * 8)
-
-            optimizer_text_D.zero_grad()
-
-            # Loss for real images
-            real_text_prob = text_discriminator(real_text)
-
-            # Loss for fake images
-            fake_text_prob = text_discriminator(visual_fusion.detach())
-
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_text_prob, valid)
-                + adversarial_loss(fake_text_prob, fake)
-            ) / 2.0
-            loss["text_D_loss"] = d_loss.cpu().detach().numpy()
-            # print("loss = ", loss)
-
-            d_loss.backward()
-            optimizer_text_D.step()
-
-            # -----------------
-            #  3.1 Train TextGenerator
-            # -----------------
-            # print("=" * 15, "Train TextGenerator", "=" * 15)
-
-            optimizer_text_G.zero_grad()
-
-            # Generate a batch of images
-            text_fusion = text_generator(real_text)
-
-            # Loss measures generator's ability to fool the discriminator
-            acoustic_prob = acoustic_discriminator(text_fusion)
-            visual_prob = visual_discriminator(text_fusion)
-            # print("text_prob.shape = ", text_prob.shape) # torch.Size([94, 32, 1])
-
-            g_loss = (
-                adversarial_loss(acoustic_prob, valid)
-                + adversarial_loss(visual_prob, valid)
-            ) / 2.0
-            loss["text_G_loss"] = g_loss.cpu().detach().numpy()
-
-            g_loss.backward()
-            optimizer_text_G.step()
-
-            # ---------------------
-            #  3.2 Train AcousticDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train AcousticDiscriminator", "-" * 8)
-
-            optimizer_visual_D.zero_grad()
-
-            # Loss for real images
-            real_acoustic_prob = acoustic_discriminator(real_acoustic)
-
-            # Loss for fake images
-            fake_acoustic_prob = acoustic_discriminator(text_fusion.detach())
-
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_acoustic_prob, valid)
-                + adversarial_loss(fake_acoustic_prob, fake)
-            ) / 2.0
-            loss["acoustic_D_loss"] = d_loss.cpu().detach().numpy()
-            d_loss.backward()
-            optimizer_acoustic_D.step()
-
-            # ---------------------
-            #  3.3 Train VisualDiscriminator
-            # ---------------------
-            # print("-" * 8, "Train VisualDiscriminator", "-" * 8)
-
-            optimizer_visual_D.zero_grad()
-
-            # Loss for real images
-            real_visual_prob = visual_discriminator(real_visual)
-
-            # Loss for fake images
-            fake_visual_prob = visual_discriminator(text_fusion.detach())
-
-            # Total discriminator loss
-            d_loss = (
-                adversarial_loss(real_visual_prob, valid)
-                + adversarial_loss(fake_visual_prob, fake)
-            ) / 2.0
-            loss["visual_D_loss"] = d_loss.cpu().detach().numpy()
-
+            #  AcousticDiscriminator vs VisualGenerator
+            loss["acoustic_D_loss"] = train_disc(acoustic_disc,real_acoustic,visual_gen,real_visual,opt_acoustic_D,adversarial_loss,valid,fake)
+            #  VisualGenerator vs AcousticDiscriminator
+            loss["visual_G_loss"] = train_gen(visual_gen,real_visual,acoustic_disc,opt_visual_G,adversarial_loss,valid,fake)
+            
             # 以表格的形式打印loss这个字典
             loss = pd.DataFrame(loss, index=[0])
             print(loss)
 
-            d_loss.backward()
-            optimizer_visual_D.step()
             # 在每个epoch的最后一次batch中，将loss添加到loss_df中
             # 把loss添加到loss_df中
             if i == len(train_loader) - 1:
@@ -562,12 +426,12 @@ def save_GAN_loss(df: pd.DataFrame, path="./output/GAN_loss.csv") -> None:
 
 def save_GAN_models(models: list, save_path: str) -> None:
     models_name = [
-        "acoustic_generator",
-        "acoustic_discriminator",
-        "visual_generator",
-        "visual_discriminator",
-        "text_generator",
-        "text_discriminator",
+        "acoustic_gen",
+        "acoustic_disc",
+        "visual_gen",
+        "visual_disc",
+        "text_gen",
+        "text_disc",
     ]
     for id, model in enumerate(models):
         path = save_path + models_name[id] + ".pth"
@@ -598,7 +462,7 @@ if __name__ == "__main__":
         "--batch-size", type=int, default=32, metavar="BS", help="batch size"
     )
     parser.add_argument(
-        "--epochs", type=int, default=200, metavar="E", help="number of epochs"
+        "--epochs", type=int, default=100, metavar="E", help="number of epochs"
     )
     parser.add_argument(
         "--GAN-epochs", type=int, default=80, metavar="E", help="number of GAN epochs"
@@ -621,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=True,
+        default=False,
         help="Use trained GAN",
     )
     args = parser.parse_args()
@@ -655,46 +519,38 @@ if __name__ == "__main__":
     use_trained_GAN = args.use_trained_GAN
 
     if use_trained_GAN == True:
-        acoustic_generator = torch.load(
-            model_save_path + "acoustic_generator.pth"
-        ).eval()
-        acoustic_discriminator = torch.load(
-            model_save_path + "acoustic_discriminator.pth"
-        ).eval()
-        visual_generator = torch.load(model_save_path + "visual_generator.pth").eval()
-        visual_discriminator = torch.load(
-            model_save_path + "visual_discriminator.pth"
-        ).eval()
-        text_generator = torch.load(model_save_path + "text_generator.pth").eval()
-        text_discriminator = torch.load(
-            model_save_path + "text_discriminator.pth"
-        ).eval()
+        acoustic_gen = torch.load(model_save_path + "acoustic_gen.pth").eval()
+        acoustic_disc = torch.load(model_save_path + "acoustic_disc.pth").eval()
+        visual_gen = torch.load(model_save_path + "visual_gen.pth").eval()
+        visual_disc = torch.load(model_save_path + "visual_disc.pth").eval()
+        text_gen = torch.load(model_save_path + "text_gen.pth").eval()
+        text_disc = torch.load(model_save_path + "text_disc.pth").eval()
         print("=" * 15, model_save_path + "loaded trained GAN", "=" * 15)
 
     else:
         # create GAN components
-        acoustic_generator = AcousticGenerator(D_h, dropout=0.2)
-        acoustic_discriminator = AcousticDiscriminator(D_h, dropout=0.2)
-        visual_generator = VisualGenerator(D_h, dropout=0.2)
-        visual_discriminator = VisualDiscriminator(D_h, dropout=0.2)
-        text_generator = TextGenerator(D_h, dropout=0.2)
-        text_discriminator = TextDiscriminator(D_h, dropout=0.2)
+        acoustic_gen = AcousticGenerator(D_h, dropout=0.2)
+        acoustic_disc = AcousticDiscriminator(D_h, dropout=0.2)
+        visual_gen = VisualGenerator(D_h, dropout=0.2)
+        visual_disc = VisualDiscriminator(D_h, dropout=0.2)
+        text_gen = TextGenerator(D_h, dropout=0.2)
+        text_disc = TextDiscriminator(D_h, dropout=0.2)
 
         if cuda:
-            acoustic_generator = nn.DataParallel(acoustic_generator).cuda()
-            acoustic_discriminator = nn.DataParallel(acoustic_discriminator).cuda()
-            visual_generator = nn.DataParallel(visual_generator).cuda()
-            visual_discriminator = nn.DataParallel(visual_discriminator).cuda()
-            text_generator = nn.DataParallel(text_generator).cuda()
-            text_discriminator = nn.DataParallel(text_discriminator).cuda()
+            acoustic_gen = nn.DataParallel(acoustic_gen).cuda()
+            acoustic_disc = nn.DataParallel(acoustic_disc).cuda()
+            visual_gen = nn.DataParallel(visual_gen).cuda()
+            visual_disc = nn.DataParallel(visual_disc).cuda()
+            text_gen = nn.DataParallel(text_gen).cuda()
+            text_disc = nn.DataParallel(text_disc).cuda()
 
         loss_df = train_GAN(
-            acoustic_generator,
-            visual_generator,
-            text_generator,
-            acoustic_discriminator,
-            visual_discriminator,
-            text_discriminator,
+            acoustic_gen,
+            visual_gen,
+            text_gen,
+            acoustic_disc,
+            visual_disc,
+            text_disc,
             epochs=g_epochs,
             batch_size=32,
             lr=0.0001,
@@ -706,12 +562,12 @@ if __name__ == "__main__":
         draw_GAN_loss(loss_df, "./output/GAN_loss.png")
         # save model parameters
         models = [
-            acoustic_generator,
-            acoustic_discriminator,
-            visual_generator,
-            visual_discriminator,
-            text_generator,
-            text_discriminator,
+            acoustic_gen,
+            acoustic_disc,
+            visual_gen,
+            visual_disc,
+            text_gen,
+            text_disc,
         ]
         save_GAN_models(models, model_save_path)
 
@@ -723,9 +579,9 @@ if __name__ == "__main__":
 
     # TODO: GAN-FFN还需要进一步调优，目前需要训练到17轮才出现明显的准确度提升
     model = GAN_FFN(
-        acoustic_generator,
-        visual_generator,
-        text_generator,
+        acoustic_gen,
+        visual_gen,
+        text_gen,
         n_classes=n_classes,
         dropout=dropout,
     )

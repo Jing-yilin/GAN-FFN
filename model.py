@@ -921,9 +921,7 @@ class GAN_FFN(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.smax_fc = nn.Linear(512, n_classes)
 
-        self.fc1 = nn.Linear(100*3, 128)
-        self.fc2 = nn.Linear(100*3, 128)
-        self.fc3 = nn.Linear(128, n_classes)
+        self.fc1 = nn.Linear(100*3, n_classes)
 
     def forward(self, acoustic, visual, text):
         alpha, alpha_f, alpha_b = [], [], []
@@ -951,8 +949,7 @@ class GAN_FFN(nn.Module):
 
 
         # hidden = self.relu(self.fc1(fusion))
-        hidden = self.relu(self.fc2(fusion))
-        hidden = self.dropout(self.fc3(hidden))
+        hidden = self.fc1(fusion)
         log_prob = F.log_softmax(hidden, 2)
 
         # log_prob = torch.cat([log_prob[:, j, :][:seq_lengths[j]] for j in range(len(seq_lengths))])
