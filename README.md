@@ -69,6 +69,3 @@ ImportError: cannot import name 'container_abcs' from 'torch._six'
 ```
 解决方法：
 修改`/Users/zephyr/anaconda3/envs/pytorch/lib/python3.8/site-packages/torch_geometric/data/dataloader.py`文件,将`from torch._six import container_abcs, string_classes, int_classes`改为`import collections.abc as container_abcs`即可。
-
-ssh -p 45734 root@180.184.103.46
-gDHXOYSwnh
