@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 import pickle
 import pandas as pd
-
+import numpy as np
 
 class IEMOCAPDataset(Dataset):
 
@@ -14,6 +14,26 @@ class IEMOCAPDataset(Dataset):
         '''
         label index mapping = {'happy':0, 'sad':1, 'neutral':2, 'angry':3, 'excioted':4, 'frustrated':5}
         '''
+
+        # 对self.videoText,，self.videoAudio, self.videoVisual 的values()进行归一化处理
+        # 归一化 self.videoText 的值
+        for key in self.videoText.keys():
+            videoText_values = self.videoText[key]
+            normalized_values = (videoText_values - np.min(videoText_values)) / (np.max(videoText_values) - np.min(videoText_values))
+            self.videoText[key] = normalized_values
+
+        # 归一化 self.videoAudio 的值
+        for key in self.videoAudio.keys():
+            videoAudio_values = self.videoAudio[key]
+            normalized_values = (videoAudio_values - np.min(videoAudio_values)) / (np.max(videoAudio_values) - np.min(videoAudio_values))
+            self.videoAudio[key] = normalized_values
+
+        # 归一化 self.videoVisual 的值
+        for key in self.videoVisual.keys():
+            videoVisual_values = self.videoVisual[key]
+            normalized_values = (videoVisual_values - np.min(videoVisual_values)) / (np.max(videoVisual_values) - np.min(videoVisual_values))
+            self.videoVisual[key] = normalized_values
+
         self.keys = [x for x in (self.trainVid if train else self.testVid)]
 
         self.len = len(self.keys)

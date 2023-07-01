@@ -1,6 +1,7 @@
 # GAN-FFN
 
-基于生成对抗网络实现的特征融合网络（GAN-Feature Fusion Network）
+This is a GAN-based feature Fusion Network.
+- GPU: V100-32GB
 
 GAN-FNN的训练过程分为2个步骤：
 1. 通过GAN实现融合特征生成器的训练
@@ -38,15 +39,21 @@ weighted avg     0.6122    0.6205    0.6134    1623.0
 
 We now introduce our Generative Adversarial Network-based Feature Fusion Network (GAN-FFN), which generates fused features that can be further used by other sentiment recognition networks. GAN-FFN consists of two parts - a **fused feature generator group** and a **feature discriminator group**. The fused feature generator group includes text, visual, and acoustic fused feature generators, and the feature discriminator group includes text, visual, and acoustic feature discriminators.
 
-## Fused feature generator group
-
 # Environment
 
 - python 3.8
+- pytorch
+- pytorch-geometric
+- tensorboardX
+- sklearn
+- matplotlib
+- pandas
+- numpy
+- openpyxl
 
 ## install requirements
 ```bash
-python -m pip install pandas numpy sklearn matplotlib tensorboardX
+python -m pip install pandas numpy sklearn matplotlib tensorboardX openpyxl
 python -m pip install https://data.pyg.org/whl/torch-1.11.0%2Bcu113/pyg_lib-0.1.0%2Bpt111cu113-cp38-cp38-linux_x86_64.whl
 python -m pip install https://data.pyg.org/whl/torch-1.11.0%2Bcu113/torch_cluster-1.6.0-cp38-cp38-linux_x86_64.whl
 python -m pip install https://data.pyg.org/whl/torch-1.11.0%2Bcu113/torch_scatter-2.0.9-cp38-cp38-linux_x86_64.whl
@@ -55,10 +62,13 @@ python -m pip install https://data.pyg.org/whl/torch-1.11.0%2Bcu113/torch_spline
 python -m pip install torch-geometric
 ```
 
-## Some problems
+## Bugs
 遇到报错：
 ```text
 ImportError: cannot import name 'container_abcs' from 'torch._six' 
 ```
 解决方法：
 修改`/Users/zephyr/anaconda3/envs/pytorch/lib/python3.8/site-packages/torch_geometric/data/dataloader.py`文件,将`from torch._six import container_abcs, string_classes, int_classes`改为`import collections.abc as container_abcs`即可。
+
+ssh -p 45734 root@180.184.103.46
+gDHXOYSwnh
