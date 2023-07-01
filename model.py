@@ -921,7 +921,7 @@ class GAN_FFN(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.smax_fc = nn.Linear(512, n_classes)
 
-        self.fc1 = nn.Linear(100*3, n_classes)
+        self.fc1 = nn.Linear(100, n_classes)
 
     def forward(self, acoustic, visual, text):
         alpha, alpha_f, alpha_b = [], [], []
@@ -935,7 +935,8 @@ class GAN_FFN(nn.Module):
 
         D_h = acoustic_fusion.size(-1) # 100
 
-        fusion = torch.cat([acoustic_fusion, visual_fusion, text_fusion], dim=2) # (seq_len, batch_size, 3*D_h)
+        # fusion = torch.cat([acoustic_fusion, visual_fusion, text_fusion], dim=2) # (seq_len, batch_size, 3*D_h)
+        fusion = acoustic_fusion + visual_fusion + text_fusion # 如果只用这个有59.14
 
         # fusion_context, _ = self.lstm(fusion) # (seq_len, batch_size, 512))
         # fusion_context = self.gelu(fusion_context) # (seq_len, batch_size, 512)

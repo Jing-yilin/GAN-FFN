@@ -290,11 +290,11 @@ def train_GAN(
 
     # Optimizers
     opt_acoustic_G = torch.optim.Adam(acoustic_gen.parameters(), lr=lr, betas=(b1, b2))
-    opt_acoustic_D = torch.optim.Adam(acoustic_disc.parameters(), lr=lr, betas=(b1, b2))
+    opt_acoustic_D = torch.optim.Adam(acoustic_disc.parameters(), lr=lr/2, betas=(b1, b2))
     opt_visual_G = torch.optim.Adam(visual_gen.parameters(), lr=lr, betas=(b1, b2))
-    opt_visual_D = torch.optim.Adam(visual_disc.parameters(), lr=lr, betas=(b1, b2))
-    opt_text_G = torch.optim.Adam(text_gen.parameters(), lr=lr, betas=(b1, b2))
-    opt_text_D = torch.optim.Adam(text_disc.parameters(), lr=lr, betas=(b1, b2))
+    opt_visual_D = torch.optim.Adam(visual_disc.parameters(), lr=lr/2, betas=(b1, b2))
+    opt_text_G = torch.optim.Adam(text_gen.parameters(), lr=lr*1.1, betas=(b1, b2))
+    opt_text_D = torch.optim.Adam(text_disc.parameters(), lr=lr/2, betas=(b1, b2))
 
     # Loss functions
     adversarial_loss = torch.nn.BCELoss()  # 二元交叉熵
@@ -450,10 +450,10 @@ if __name__ == "__main__":
         "--no-cuda", action="store_true", default=False, help="does not use GPU"
     )
     parser.add_argument(
-        "--lr", type=float, default=0.0003, metavar="LR", help="learning rate"
+        "--lr", type=float, default=0.0001, metavar="LR", help="learning rate"
     )
     parser.add_argument(
-        "--l2", type=float, default=0.007, metavar="L2", help="L2 regularization weight"
+        "--l2", type=float, default=0.008, metavar="L2", help="L2 regularization weight"
     )
     parser.add_argument(
         "--dropout", type=float, default=0.6, metavar="dropout", help="dropout rate"
@@ -462,10 +462,10 @@ if __name__ == "__main__":
         "--batch-size", type=int, default=32, metavar="BS", help="batch size"
     )
     parser.add_argument(
-        "--epochs", type=int, default=100, metavar="E", help="number of epochs"
+        "--epochs", type=int, default=150, metavar="E", help="number of epochs"
     )
     parser.add_argument(
-        "--GAN-epochs", type=int, default=80, metavar="E", help="number of GAN epochs"
+        "--GAN-epochs", type=int, default=150, metavar="E", help="number of GAN epochs"
     )
     parser.add_argument(
         "--class-weight", action="store_true", default=True, help="use class weight"
@@ -485,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=False,
+        default=True,
         help="Use trained GAN",
     )
     args = parser.parse_args()
