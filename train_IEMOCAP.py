@@ -43,7 +43,7 @@ LongTensor = torch.LongTensor
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-seed = 23333
+seed = 2023
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -101,7 +101,7 @@ def get_IEMOCAP_loaders(
 
 
 def train_or_eval_model(
-    model, loss_function, dataloader, epoch, optimizer=None, train=False
+    model, loss_function, dataloader, epoch, optimizer=None, train=False, cuda=True
 ):
     """
     Utility function to train model for one epoch of train data
@@ -209,7 +209,7 @@ def train_GAN(
     lr=0.002,
     b1=0.6,
     b2=0.999,
-    dataset_path="./IEMOCAP_features/IEMOCAP_features.pkl",
+    dataset_path="./data/iemocap/IEMOCAP_features.pkl",
 ) -> pd.DataFrame:
     """
     Train the GAN model
@@ -235,22 +235,22 @@ def train_GAN(
 
     # Optimizers
     optimizer_acoustic_G = torch.optim.Adam(
-        acoustic_generator.parameters(), lr=lr, betas=(b1, b2)
+        acoustic_generator.parameters(), lr=lr * 1.1, betas=(b1, b2)
     )
     optimizer_acoustic_D = torch.optim.Adam(
-        acoustic_discriminator.parameters(), lr=lr / 2, betas=(b1, b2)
+        acoustic_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
     )
     optimizer_visual_G = torch.optim.Adam(
         visual_generator.parameters(), lr=lr, betas=(b1, b2)
     )
     optimizer_visual_D = torch.optim.Adam(
-        visual_discriminator.parameters(), lr=lr / 2, betas=(b1, b2)
+        visual_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
     )
     optimizer_text_G = torch.optim.Adam(
         text_generator.parameters(), lr=lr, betas=(b1, b2)
     )
     optimizer_text_D = torch.optim.Adam(
-        text_discriminator.parameters(), lr=lr / 2, betas=(b1, b2)
+        text_discriminator.parameters(), lr=lr / 3, betas=(b1, b2)
     )
 
     # Loss functions
@@ -327,7 +327,7 @@ def train_GAN(
                 adversarial_loss(visual_prob, valid)
                 + adversarial_loss(text_prob, valid)
             ) / 2.0
-            loss["acoustic_G_loss"] = g_loss.detach().numpy()
+            loss["acoustic_G_loss"] = g_loss.cpu().detach().numpy()
 
             g_loss.backward()
             optimizer_acoustic_G.step()
@@ -348,7 +348,7 @@ def train_GAN(
                 adversarial_loss(real_visual_prob, valid)
                 + adversarial_loss(fake_visual_prob, fake)
             ) / 2.0
-            loss["visual_D_loss"] = d_loss.detach().numpy()
+            loss["visual_D_loss"] = d_loss.cpu().detach().numpy()
 
             d_loss.backward()
             optimizer_visual_D.step()
@@ -371,7 +371,7 @@ def train_GAN(
                 adversarial_loss(real_text_prob, valid)
                 + adversarial_loss(fake_text_prob, fake)
             ) / 2.0
-            loss["text_D_loss"] = d_loss.detach().numpy()
+            loss["text_D_loss"] = d_loss.cpu().detach().numpy()
 
             d_loss.backward()
             optimizer_text_D.step()
@@ -397,7 +397,7 @@ def train_GAN(
                 adversarial_loss(acoustic_prob, valid)
                 + adversarial_loss(text_prob, valid)
             ) / 2.0
-            loss["visual_G_loss"] = g_loss.detach().numpy()
+            loss["visual_G_loss"] = g_loss.cpu().detach().numpy()
 
             g_loss.backward()
             optimizer_visual_G.step()
@@ -420,7 +420,7 @@ def train_GAN(
                 adversarial_loss(real_acoustic_prob, valid)
                 + adversarial_loss(fake_acoustic_prob, fake)
             ) / 2.0
-            loss["acoustic_D_loss"] = d_loss.detach().numpy()
+            loss["acoustic_D_loss"] = d_loss.cpu().detach().numpy()
 
             d_loss.backward()
             optimizer_acoustic_D.step()
@@ -443,7 +443,7 @@ def train_GAN(
                 adversarial_loss(real_text_prob, valid)
                 + adversarial_loss(fake_text_prob, fake)
             ) / 2.0
-            loss["text_D_loss"] = d_loss.detach().numpy()
+            loss["text_D_loss"] = d_loss.cpu().detach().numpy()
             # print("loss = ", loss)
 
             d_loss.backward()
@@ -468,7 +468,7 @@ def train_GAN(
                 adversarial_loss(acoustic_prob, valid)
                 + adversarial_loss(visual_prob, valid)
             ) / 2.0
-            loss["text_G_loss"] = g_loss.detach().numpy()
+            loss["text_G_loss"] = g_loss.cpu().detach().numpy()
 
             g_loss.backward()
             optimizer_text_G.step()
@@ -491,7 +491,7 @@ def train_GAN(
                 adversarial_loss(real_acoustic_prob, valid)
                 + adversarial_loss(fake_acoustic_prob, fake)
             ) / 2.0
-            loss["acoustic_D_loss"] = d_loss.detach().numpy()
+            loss["acoustic_D_loss"] = d_loss.cpu().detach().numpy()
             d_loss.backward()
             optimizer_acoustic_D.step()
 
@@ -513,7 +513,7 @@ def train_GAN(
                 adversarial_loss(real_visual_prob, valid)
                 + adversarial_loss(fake_visual_prob, fake)
             ) / 2.0
-            loss["visual_D_loss"] = d_loss.detach().numpy()
+            loss["visual_D_loss"] = d_loss.cpu().detach().numpy()
 
             # 以表格的形式打印loss这个字典
             loss = pd.DataFrame(loss, index=[0])
@@ -529,9 +529,16 @@ def train_GAN(
     return loss_df
 
 
-def draw_GAN_loss(df: pd.DataFrame) -> None:
+def create_path(path: str) -> None:
+    """创建路径"""
+    path = os.path.split(path)[0]
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def draw_GAN_loss(df: pd.DataFrame, path="./output/GAN_loss.png") -> None:
     """画出GAN的loss曲线"""
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(10, 8), dpi=300)
     # 画出loss曲线
     plt.plot(df["epoch"], df["acoustic_G_loss"], label="acoustic_G_loss")
     plt.plot(df["epoch"], df["visual_G_loss"], label="visual_G_loss")
@@ -544,16 +551,13 @@ def draw_GAN_loss(df: pd.DataFrame) -> None:
     plt.ylabel("loss")
     plt.title("GAN loss")
     # 保存
-    if not os.path.exists("./output"):
-        os.mkdir("./output")
-    plt.savefig("./output/GAN_loss.png")
+    create_path(path)
+    plt.savefig(path)
 
 
-def save_GAN_loss(df: pd.DataFrame) -> None:
-    # 保存loss
-    if not os.path.exists("./output"):
-        os.mkdir("./output")
-    df.to_csv("./output/GAN_loss.csv", index=False)
+def save_GAN_loss(df: pd.DataFrame, path="./output/GAN_loss.csv") -> None:
+    create_path(path)
+    df.to_csv(path, index=False)
 
 
 def save_GAN_models(models: list, save_path: str) -> None:
@@ -570,8 +574,8 @@ def save_GAN_models(models: list, save_path: str) -> None:
         torch.save(model, path)
 
 
-def main():
-    dataset_path = "./IEMOCAP_features/IEMOCAP_features.pkl"
+if __name__ == "__main__":
+    dataset_path = "data/iemocap/IEMOCAP_features.pkl"
     model_save_path = "./GAN_save/"
     # 创建文件
     if not os.path.exists(model_save_path):
@@ -582,22 +586,22 @@ def main():
         "--no-cuda", action="store_true", default=False, help="does not use GPU"
     )
     parser.add_argument(
-        "--lr", type=float, default=0.0005, metavar="LR", help="learning rate"
+        "--lr", type=float, default=0.0003, metavar="LR", help="learning rate"
     )
     parser.add_argument(
         "--l2", type=float, default=0.007, metavar="L2", help="L2 regularization weight"
     )
     parser.add_argument(
-        "--dropout", type=float, default=0.5, metavar="dropout", help="dropout rate"
+        "--dropout", type=float, default=0.6, metavar="dropout", help="dropout rate"
     )
     parser.add_argument(
         "--batch-size", type=int, default=32, metavar="BS", help="batch size"
     )
     parser.add_argument(
-        "--epochs", type=int, default=50, metavar="E", help="number of epochs"
+        "--epochs", type=int, default=200, metavar="E", help="number of epochs"
     )
     parser.add_argument(
-        "--GAN-epochs", type=int, default=5, metavar="E", help="number of GAN epochs"
+        "--GAN-epochs", type=int, default=80, metavar="E", help="number of GAN epochs"
     )
     parser.add_argument(
         "--class-weight", action="store_true", default=True, help="use class weight"
@@ -617,7 +621,7 @@ def main():
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=False,
+        default=True,
         help="Use trained GAN",
     )
     args = parser.parse_args()
@@ -693,13 +697,13 @@ def main():
             text_discriminator,
             epochs=g_epochs,
             batch_size=32,
-            lr=0.0005,
-            b1=0.6,
+            lr=0.0001,
+            b1=0.5,
             b2=0.6,
         )
 
-        save_GAN_loss(loss_df)
-        draw_GAN_loss(loss_df)
+        save_GAN_loss(loss_df, "./output/GAN_loss.csv")
+        draw_GAN_loss(loss_df, "./output/GAN_loss.png")
         # save model parameters
         models = [
             acoustic_generator,
@@ -765,11 +769,11 @@ def main():
         start_time = time.time()
         # 训练
         train_loss, train_acc, _, _, _, train_fscore, _ = train_or_eval_model(
-            model, loss_function, train_loader, e, optimizer, True
+            model, loss_function, train_loader, e, optimizer, True, cuda
         )
         # 验证
         valid_loss, valid_acc, _, _, _, val_fscore, _ = train_or_eval_model(
-            model, loss_function, valid_loader, e
+            model, loss_function, valid_loader, e, cuda
         )
         # 测试
         (
@@ -780,7 +784,7 @@ def main():
             test_mask,
             test_fscore,
             attentions,
-        ) = train_or_eval_model(model, loss_function, test_loader, e)
+        ) = train_or_eval_model(model, loss_function, test_loader, e, cuda)
 
         if best_loss == None or best_loss > test_loss:
             best_loss, best_label, best_pred, best_mask, best_attn = (
@@ -815,11 +819,11 @@ def main():
     acc.extend(f_score)
     # acc = pd.DataFrame(np.array(acc))
     f_score = pd.DataFrame(np.array((f_score)))
-    writer = pd.ExcelWriter("test.xlsx")
+    # writer = pd.ExcelWriter("test.xlsx")
     # acc.to_excel(writer, "sheet_1", float_format="%.2f", header=False, index=False)
     # f_score.to_excel(writer, 'sheet_1', float_format='%.2f', header=False, index=False, columns=[1])
-    writer.save()
-    writer.close()
+    # writer.save()
+    # writer.close()
 
     # if args.tensorboard:
     #     writer.close()
@@ -842,7 +846,3 @@ def main():
         classification_report(best_label, best_pred, sample_weight=best_mask, digits=4)
     )
     print(confusion_matrix(best_label, best_pred, sample_weight=best_mask))
-
-
-if __name__ == "__main__":
-    main()

@@ -156,7 +156,7 @@ if __name__ == '__main__':
                            lr=args.lr,
                            weight_decay=args.l2)
 
-    train_loader, valid_loader, test_loader = get_MELD_loaders('MELD_features/MELD_features_raw.pkl',
+    train_loader, valid_loader, test_loader = get_MELD_loaders('data/meld/MELD_features_raw.pkl',
                                                                batch_size=batch_size,
                                                                valid=0.0,
                                                                classify=args.classify)
