@@ -259,11 +259,11 @@ def train_GAN(
     acoustic_disc: AcousticDiscriminator,
     visual_disc: VisualDiscriminator,
     text_disc: TextDiscriminator,
-    epochs=1,
+    epochs=50,
     batch_size=32,
     lr=0.002,
     b1=0.6,
-    b2=0.999,
+    b2=0.996,
     dataset_path="./data/iemocap/IEMOCAP_features.pkl",
 ) -> pd.DataFrame:
     """
@@ -462,7 +462,7 @@ if __name__ == "__main__":
         "--batch-size", type=int, default=32, metavar="BS", help="batch size"
     )
     parser.add_argument(
-        "--epochs", type=int, default=150, metavar="E", help="number of epochs"
+        "--epochs", type=int, default=160, metavar="E", help="number of epochs"
     )
     parser.add_argument(
         "--GAN-epochs", type=int, default=150, metavar="E", help="number of GAN epochs"
@@ -485,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=True,
+        default=False,
         help="Use trained GAN",
     )
     args = parser.parse_args()
