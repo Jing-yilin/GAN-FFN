@@ -488,6 +488,11 @@ if __name__ == "__main__":
         default=False,
         help="Use trained GAN",
     )
+    parser.add_argument(
+        "--continue-train-GAN-step",
+       type=int, default=5, metavar="E",
+        help="Continue training from saved GAN models",
+    )
     args = parser.parse_args()
 
     print(args)
@@ -510,6 +515,7 @@ if __name__ == "__main__":
     n_epochs = args.epochs
     dropout = args.dropout
     g_epochs = args.GAN_epochs
+    continue_train_GAN_step = args.continue_train_GAN_step
 
     n_classes = 6
     D_m = 200
@@ -526,6 +532,48 @@ if __name__ == "__main__":
         text_gen = torch.load(model_save_path + "text_gen.pth").eval()
         text_disc = torch.load(model_save_path + "text_disc.pth").eval()
         print("=" * 15, model_save_path + "loaded trained GAN", "=" * 15)
+
+        if continue_train_GAN_step > 0:
+            print("=" * 15, "continue train GAN", "=" * 15)
+            # 读取GAN_loss
+            loss_df = pd.read_csv("./output/" + "GAN_loss.csv")
+            # loss_df变成df
+            loss_df = pd.DataFrame(loss_df)
+            # loss_df后面拼接train_GAN的结果
+            continued_loss_df = train_GAN(
+                acoustic_gen,
+                visual_gen,
+                text_gen,
+                acoustic_disc,
+                visual_disc,
+                text_disc,
+                epochs=continue_train_GAN_step,
+                batch_size=32,
+                lr=0.0001,
+                b1=0.5,
+                b2=0.6,
+            )
+            # 拼接
+            loss_df = pd.concat([loss_df, continued_loss_df], axis=0)
+
+            save_GAN_loss(loss_df, f"./output/GAN_loss.csv")
+            draw_GAN_loss(loss_df, f"./output/GAN_loss.png")
+            # save model parameters
+            models = [
+                acoustic_gen,
+                acoustic_disc,
+                visual_gen,
+                visual_disc,
+                text_gen,
+                text_disc,
+            ]
+            save_GAN_models(models, model_save_path)
+
+            # change mode to eval
+            for model in models:
+                model.eval()
+
+            print("=" * 15, "finished training GAN", "=" * 15)
 
     else:
         # create GAN components
@@ -558,8 +606,8 @@ if __name__ == "__main__":
             b2=0.6,
         )
 
-        save_GAN_loss(loss_df, "./output/GAN_loss.csv")
-        draw_GAN_loss(loss_df, "./output/GAN_loss.png")
+        save_GAN_loss(loss_df, f"./output/GAN_loss.csv")
+        draw_GAN_loss(loss_df, f"./output/GAN_loss.png")
         # save model parameters
         models = [
             acoustic_gen,
@@ -686,18 +734,26 @@ if __name__ == "__main__":
 
     print(acc, f_score)
     print("Test performance..")
-    print(
-        "Loss {} F1-score {}".format(
-            best_loss,
-            round(
+    final_f1_score = round(
                 f1_score(
                     best_label, best_pred, sample_weight=best_mask, average="weighted"
                 )
                 * 100,
                 2,
-            ),
+            )
+    test_out = "Loss {} F1-score {}".format(
+            best_loss,
+            final_f1_score,
         )
-    )
+    # save test_out
+    file_name = f"./output/test_out_GAN-epochs={g_epochs}_F1-score={final_f1_score}.txt"
+    with open(file_name, "w") as f:
+        f.write(test_out)
+        f.write(str(classification_report(best_label, best_pred, sample_weight=best_mask, digits=4)))
+        f.write(str(confusion_matrix(best_label, best_pred, sample_weight=best_mask)))
+    print("Successfully save test_out to {}".format(file_name))
+
+    print(test_out)
     print(
         classification_report(best_label, best_pred, sample_weight=best_mask, digits=4)
     )
