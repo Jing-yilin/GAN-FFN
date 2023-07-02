@@ -2,6 +2,34 @@
 
 We now introduce our Generative Adversarial Network-based Feature Fusion Network (GAN-FFN), which generates fused features that can be further used by other sentiment recognition networks. GAN-FFN consists of two parts - a **fused feature generator group** and a **feature discriminator group**. The fused feature generator group includes text, visual, and acoustic fused feature generators, and the feature discriminator group includes text, visual, and acoustic feature discriminators.
 
+## Best performance
+
+`train_IEMOCAP.py`:
+![GAN-loss](https://img.jing10.top/uPic/202307012248371688222917mFKocc.jpg)
+```text
+Test performance..
+Loss 1.025 F1-score 59.65
+              precision    recall  f1-score   support
+
+           0     0.4048    0.3542    0.3778     144.0
+           1     0.7887    0.6245    0.6970     245.0
+           2     0.5603    0.5443    0.5522     384.0
+           3     0.5534    0.6706    0.6064     170.0
+           4     0.6451    0.7659    0.7003     299.0
+           5     0.5827    0.5643    0.5733     381.0
+
+    accuracy                         0.5983    1623.0
+   macro avg     0.5891    0.5873    0.5845    1623.0
+weighted avg     0.6011    0.5983    0.5965    1623.0
+
+[[ 51.   9.   7.   2.  73.   2.]
+ [  6. 153.  36.   4.   4.  42.]
+ [ 25.  23. 209.  20.  42.  65.]
+ [  2.   0.  10. 114.   0.  44.]
+ [ 32.   0.  35.   2. 229.   1.]
+ [ 10.   9.  76.  64.   7. 215.]]
+```
+
 ## Environment
 - Device: V100-32GB * 1卡
 - python 3.8

@@ -26,6 +26,7 @@ from model import (
     VisualGenerator,
     VisualDiscriminator,
     GAN_FFN,
+    GAN_FFN_DialogueRNN,
 )
 from dataloader import IEMOCAPDataset
 from sklearn.manifold import TSNE
@@ -148,7 +149,7 @@ def train_or_eval_model(
         # print(label)
         # sys.exit()
 
-        log_prob, alpha, alpha_f, alpha_b = model(acouf, visuf, textf)
+        log_prob, alpha, alpha_f, alpha_b = model(acouf, visuf, textf, qmask, umask)
         # log_prob, alpha, alpha_f, alpha_b = model(torch.cat((textf, acouf), dim=-1), qmask, umask)
         # log_prob, alpha, alpha_f, alpha_b, hidden = model(textf, acouf, visuf, qmask, umask)
         lp_ = log_prob.transpose(0, 1).contiguous().view(-1, log_prob.size()[2])
@@ -197,7 +198,9 @@ def train_or_eval_model(
     )
 
 
-def train_disc(disc, real_dics, gen,real_gen, opt, adversarial_loss, valid, fake) -> float:
+def train_disc(
+    disc, real_dics, gen, real_gen, opt, adversarial_loss, valid, fake
+) -> float:
     """
     Train discriminator
     Args:
@@ -218,8 +221,7 @@ def train_disc(disc, real_dics, gen,real_gen, opt, adversarial_loss, valid, fake
     fusion = gen(real_gen)
     fake_prob = disc(fusion.detach())
     d_loss = (
-        adversarial_loss(real_prob, valid)
-        + adversarial_loss(fake_prob, fake)
+        adversarial_loss(real_prob, valid) + adversarial_loss(fake_prob, fake)
     ) / 2.0
     res = d_loss.cpu().detach().numpy()
     d_loss.backward()
@@ -227,7 +229,7 @@ def train_disc(disc, real_dics, gen,real_gen, opt, adversarial_loss, valid, fake
     return res
 
 
-def train_gen(gen,real_gen, disc, opt, adversarial_loss, valid, fake) -> float:
+def train_gen(gen, real_gen, disc, opt, adversarial_loss, valid, fake) -> float:
     """
     Train generator
     Args:
@@ -245,7 +247,7 @@ def train_gen(gen,real_gen, disc, opt, adversarial_loss, valid, fake) -> float:
     opt.zero_grad()
     fusion = gen(real_gen)
     prob = disc(fusion)
-    g_loss = adversarial_loss(prob, valid) 
+    g_loss = adversarial_loss(prob, valid)
     res = g_loss.cpu().detach().numpy()
     g_loss.backward()
     opt.step()
@@ -290,11 +292,13 @@ def train_GAN(
 
     # Optimizers
     opt_acoustic_G = torch.optim.Adam(acoustic_gen.parameters(), lr=lr, betas=(b1, b2))
-    opt_acoustic_D = torch.optim.Adam(acoustic_disc.parameters(), lr=lr/2, betas=(b1, b2))
+    opt_acoustic_D = torch.optim.Adam(
+        acoustic_disc.parameters(), lr=lr / 2, betas=(b1, b2)
+    )
     opt_visual_G = torch.optim.Adam(visual_gen.parameters(), lr=lr, betas=(b1, b2))
-    opt_visual_D = torch.optim.Adam(visual_disc.parameters(), lr=lr/2, betas=(b1, b2))
-    opt_text_G = torch.optim.Adam(text_gen.parameters(), lr=lr*1.1, betas=(b1, b2))
-    opt_text_D = torch.optim.Adam(text_disc.parameters(), lr=lr/2, betas=(b1, b2))
+    opt_visual_D = torch.optim.Adam(visual_disc.parameters(), lr=lr / 2, betas=(b1, b2))
+    opt_text_G = torch.optim.Adam(text_gen.parameters(), lr=lr * 1.1, betas=(b1, b2))
+    opt_text_D = torch.optim.Adam(text_disc.parameters(), lr=lr / 2, betas=(b1, b2))
 
     # Loss functions
     adversarial_loss = torch.nn.BCELoss()  # 二元交叉熵
@@ -352,35 +356,137 @@ def train_GAN(
             label = Variable(label.type(LongTensor))
 
             #  VisualDiscriminator vs AcousticGenerator
-            loss["visual_D_loss"] = train_disc(visual_disc,real_visual,acoustic_gen,real_acoustic,opt_visual_D,adversarial_loss,valid,fake)
+            loss["visual_D_loss"] = train_disc(
+                visual_disc,
+                real_visual,
+                acoustic_gen,
+                real_acoustic,
+                opt_visual_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  AcousticGenerator vs VisualDiscriminator
-            loss["acoustic_G_loss"] = train_gen(acoustic_gen,real_acoustic,visual_disc,opt_acoustic_G,adversarial_loss,valid,fake)
+            loss["acoustic_G_loss"] = train_gen(
+                acoustic_gen,
+                real_acoustic,
+                visual_disc,
+                opt_acoustic_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
 
             #  VisualDiscriminator vs TextGenerator
-            loss["visual_D_loss"] = train_disc(visual_disc,real_visual,text_gen,real_text,opt_visual_D,adversarial_loss,valid,fake)
+            loss["visual_D_loss"] = train_disc(
+                visual_disc,
+                real_visual,
+                text_gen,
+                real_text,
+                opt_visual_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  TextGenerator vs VisualDiscriminator
-            loss["text_G_loss"] = train_gen(text_gen,real_text,visual_disc,opt_text_G,adversarial_loss,valid,fake)
+            loss["text_G_loss"] = train_gen(
+                text_gen,
+                real_text,
+                visual_disc,
+                opt_text_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
 
             #  TextDiscriminator vs AcousticGenerator
-            loss["text_D_loss"] = train_disc(text_disc,real_text,acoustic_gen,real_acoustic,opt_text_D,adversarial_loss,valid,fake)
+            loss["text_D_loss"] = train_disc(
+                text_disc,
+                real_text,
+                acoustic_gen,
+                real_acoustic,
+                opt_text_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  AcousticGenerator vs TextDiscriminator
-            loss["acoustic_G_loss"] = train_gen(acoustic_gen,real_acoustic,text_disc,opt_acoustic_G,adversarial_loss,valid,fake)
+            loss["acoustic_G_loss"] = train_gen(
+                acoustic_gen,
+                real_acoustic,
+                text_disc,
+                opt_acoustic_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
 
             #  AcousticDiscriminator vs TextGenerator
-            loss["acoustic_D_loss"] = train_disc(acoustic_disc,real_acoustic,text_gen,real_text,opt_acoustic_D,adversarial_loss,valid,fake)
+            loss["acoustic_D_loss"] = train_disc(
+                acoustic_disc,
+                real_acoustic,
+                text_gen,
+                real_text,
+                opt_acoustic_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  TextGenerator vs AcousticDiscriminator
-            loss["text_G_loss"] = train_gen(text_gen,real_text,acoustic_disc,opt_text_G,adversarial_loss,valid,fake)
-            
+            loss["text_G_loss"] = train_gen(
+                text_gen,
+                real_text,
+                acoustic_disc,
+                opt_text_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
+
             #  TextDiscriminator vs VisualGenerator
-            loss["text_D_loss"] = train_disc(text_disc,real_text,visual_gen,real_visual,opt_text_D,adversarial_loss,valid,fake)
+            loss["text_D_loss"] = train_disc(
+                text_disc,
+                real_text,
+                visual_gen,
+                real_visual,
+                opt_text_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  VisualGenerator vs TextDiscriminator
-            loss["visual_G_loss"] = train_gen(visual_gen,real_visual,text_disc,opt_visual_G,adversarial_loss,valid,fake)
+            loss["visual_G_loss"] = train_gen(
+                visual_gen,
+                real_visual,
+                text_disc,
+                opt_visual_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
 
             #  AcousticDiscriminator vs VisualGenerator
-            loss["acoustic_D_loss"] = train_disc(acoustic_disc,real_acoustic,visual_gen,real_visual,opt_acoustic_D,adversarial_loss,valid,fake)
+            loss["acoustic_D_loss"] = train_disc(
+                acoustic_disc,
+                real_acoustic,
+                visual_gen,
+                real_visual,
+                opt_acoustic_D,
+                adversarial_loss,
+                valid,
+                fake,
+            )
             #  VisualGenerator vs AcousticDiscriminator
-            loss["visual_G_loss"] = train_gen(visual_gen,real_visual,acoustic_disc,opt_visual_G,adversarial_loss,valid,fake)
-            
+            loss["visual_G_loss"] = train_gen(
+                visual_gen,
+                real_visual,
+                acoustic_disc,
+                opt_visual_G,
+                adversarial_loss,
+                valid,
+                fake,
+            )
+
             # 以表格的形式打印loss这个字典
             loss = pd.DataFrame(loss, index=[0])
             print(loss)
@@ -453,29 +559,42 @@ if __name__ == "__main__":
         "--lr", type=float, default=0.0001, metavar="LR", help="learning rate"
     )
     parser.add_argument(
-        "--l2", type=float, default=0.008, metavar="L2", help="L2 regularization weight"
+        "--l2",
+        type=float,
+        default=0.00001,
+        metavar="L2",
+        help="L2 regularization weight",
+    )
+
+    parser.add_argument(
+        "--rec-dropout",
+        type=float,
+        default=0.1,
+        metavar="rec_dropout",
+        help="rec_dropout rate",
     )
     parser.add_argument(
         "--dropout", type=float, default=0.6, metavar="dropout", help="dropout rate"
     )
     parser.add_argument(
-        "--batch-size", type=int, default=32, metavar="BS", help="batch size"
+        "--batch-size", type=int, default=30, metavar="BS", help="batch size"
     )
     parser.add_argument(
-        "--epochs", type=int, default=160, metavar="E", help="number of epochs"
+        "--epochs", type=int, default=100, metavar="E", help="number of epochs"
     )
+
+    parser.add_argument("--attention", default="general", help="Attention type")
     parser.add_argument(
         "--GAN-epochs", type=int, default=150, metavar="E", help="number of GAN epochs"
     )
     parser.add_argument(
         "--class-weight", action="store_true", default=True, help="use class weight"
     )
+
     parser.add_argument(
-        "--attention",
-        action="store_true",
-        default=False,
-        help="use attention on top of lstm",
+        "--active-listener", action="store_true", default=False, help="active listener"
     )
+
     parser.add_argument(
         "--tensorboard",
         action="store_true",
@@ -485,7 +604,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=False,
+        default=True,
         help="Use trained GAN",
     )
     args = parser.parse_args()
@@ -512,9 +631,14 @@ if __name__ == "__main__":
     g_epochs = args.GAN_epochs
 
     n_classes = 6
-    D_m = 200
-    D_e = 30
+
+    D_m = 100
+    D_g = 500
+    D_p = 500
+    D_e = 100
     D_h = 100
+
+    D_a = 100  # concat attention
 
     use_trained_GAN = args.use_trained_GAN
 
@@ -578,12 +702,21 @@ if __name__ == "__main__":
         print("=" * 15, "finished training GAN", "=" * 15)
 
     # TODO: GAN-FFN还需要进一步调优，目前需要训练到17轮才出现明显的准确度提升
-    model = GAN_FFN(
+    model = GAN_FFN_DialogueRNN(
         acoustic_gen,
         visual_gen,
         text_gen,
+        D_m,
+        D_g,
+        D_p,
+        D_e,
+        D_h,
+        D_a,
         n_classes=n_classes,
-        dropout=dropout,
+        listener_state=args.active_listener,
+                    context_attention=args.attention,
+                    dropout_rec=args.rec_dropout,
+                    dropout=args.dropout,
     )
 
     if cuda:
