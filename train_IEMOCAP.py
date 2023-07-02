@@ -485,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-trained-GAN",
         action="store_true",
-        default=True,
+        default=False,
         help="Use trained GAN",
     )
     args = parser.parse_args()
